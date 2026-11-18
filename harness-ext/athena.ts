@@ -21,6 +21,7 @@ import * as http from "node:http";
 import * as https from "node:https";
 import * as zlib from "node:zlib";
 import { isIP } from "node:net";
+import { pipeline, Writable } from "node:stream";
 
 const AGENT_DIR = process.env.ATHENA_CODING_AGENT_DIR || path.join(process.env.HOME || ".", ".athena", "agent");
 const MEM_DIR = path.join(AGENT_DIR, "memory");
@@ -122,24 +123,41 @@ function assertUrl(raw: string): URL {
   if (isIP(host) && privateAddr(host)) throw new Error(`refusing to fetch ${u.hostname}: private or local address`);
   return u;
 }
-function getOnce(u: URL, signal?: AbortSignal): Promise<{ status: number; location?: string; body: string }> {
+// Every fetch finishes: the body (after decompression) is capped and refused the moment it passes the cap, errors in
+// the decompressor reach the caller (pipeline), and an overall deadline covers servers that trickle bytes forever.
+const MAX_BODY = 5_000_000, FETCH_DEADLINE_MS = 45_000;
+function getOnce(u: URL, signal?: AbortSignal, lookupFn: any = checkedLookup, deadlineMs = FETCH_DEADLINE_MS):
+    Promise<{ status: number; location?: string; body: string }> {
   return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (err: Error | null, v?: { status: number; location?: string; body: string }) => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      if (err) { req.destroy(); reject(err); } else resolve(v!);
+    };
+    const timer = setTimeout(() => finish(new Error("timed out")), deadlineMs);
     const mod = u.protocol === "https:" ? https : http;
-    const req = mod.request(u, { method: "GET", lookup: checkedLookup as any, signal, timeout: 30000,
+    const req = mod.request(u, { method: "GET", lookup: lookupFn, signal, timeout: 30000,
       headers: { "User-Agent": "Mozilla/5.0", "Accept-Encoding": "gzip, deflate, br" } }, (res) => {
       const enc = String(res.headers["content-encoding"] || "");
-      const stream = enc.includes("br") ? res.pipe(zlib.createBrotliDecompress()) : enc.includes("gzip") ?
-        res.pipe(zlib.createGunzip()) : enc.includes("deflate") ? res.pipe(zlib.createInflate()) : res;
+      const dec = enc.includes("br") ? zlib.createBrotliDecompress() : enc.includes("gzip") ? zlib.createGunzip() :
+        enc.includes("deflate") ? zlib.createInflate() : null;
       const chunks: Buffer[] = []; let n = 0;
-      stream.on("data", (c: Buffer) => { n += c.length; if (n > 5_000_000) { req.destroy(); } else chunks.push(c); });
-      stream.on("end", () => resolve({ status: res.statusCode || 0, location: res.headers.location, body: Buffer.concat(chunks).toString("utf8") }));
-      stream.on("error", reject);
+      const sink = new Writable({ write(c: Buffer, _e, cb) {
+        n += c.length;
+        if (n > MAX_BODY) return cb(new Error("response too large (over 5 MB)"));
+        chunks.push(c); cb();
+      } });
+      const end = (e?: Error | null) => e ? finish(e) :
+        finish(null, { status: res.statusCode || 0, location: res.headers.location, body: Buffer.concat(chunks).toString("utf8") });
+      if (dec) pipeline(res, dec, sink, end); else pipeline(res, sink, end);
     });
-    req.on("timeout", () => req.destroy(new Error("timed out")));
-    req.on("error", reject);
+    req.on("timeout", () => finish(new Error("timed out")));
+    req.on("error", (e) => finish(e));
     req.end();
   });
 }
+export const _getOnceForTest = (u: URL, lookupFn: any, deadlineMs: number) => getOnce(u, undefined, lookupFn, deadlineMs);
 
 const REMOTE_READERS = new Set(["jina", "exa"]);
 async function webFetch(url: string, maxChars: number, signal?: AbortSignal) {

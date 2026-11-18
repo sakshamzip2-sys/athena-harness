@@ -4,7 +4,8 @@
 #   athena -p "fix the tests"      one-shot
 # Env: ATHENA_MODEL (athena | athena-base), ATHENA_THINKING (off|low|medium|high = ~4k/8k/16k tokens; default off),
 #      ATHENA_CONTEXT (tokens, default 131072, max 262144), ATHENA_SKILLS=1 (load your ~/.agents skills),
-#      ATHENA_URL (endpoint), ATHENA_ALLOW_ANYWHERE=1 (allow running in / or $HOME), ATHENA_DATE=0 (no date in the prompt).
+#      ATHENA_URL (endpoint), ATHENA_ALLOW_ANYWHERE=1 (allow running in / or $HOME), ATHENA_DATE=0 (no date in the prompt),
+#      ATHENA_TOOLS=0 (no web, task list, memory, skills or session search).
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # Also refuse the harness folder itself: its .env holds the endpoint key.
@@ -65,6 +66,9 @@ ARGS=(--provider athena --model "${ATHENA_MODEL:-athena}" --thinking "${ATHENA_T
       -e "$HERE/harness-ext/commands.ts")  # Claude Code-style commands; no tools/prompt change (byte-identical requests)
 # Today's date in the prompt (OC-186 A/B: 95/96 vs 93/96 without); ATHENA_DATE=0 gives the byte-identical prompt.
 [[ "${ATHENA_DATE:-1}" == 0 ]] || ARGS+=(-e "$HERE/harness-ext/date.ts")
+# Tools beyond read/bash/edit/write: web search + fetch, task list, memory, skills, session search (owner 2026-11-19:
+# on by default; coding 138/144 vs 141/144 without). ATHENA_TOOLS=0 turns them off.
+[[ "${ATHENA_TOOLS:-1}" == 0 ]] || ARGS+=(-e "$HERE/harness-ext/athena.ts")
 [[ "${ATHENA_SKILLS:-0}" == 1 ]] || ARGS+=(--no-skills)
 [[ -f "$HERE/athena-harness/dist/bundle/cli.js" ]] || python3 -I "$HERE/tools/build_harness.py" >/dev/null
 exec node "$HERE/athena-harness/dist/bundle/cli.js" "${ARGS[@]}" "$@"

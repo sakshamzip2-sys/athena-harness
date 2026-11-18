@@ -2,7 +2,8 @@
 
 The terminal coding agent for [Athena-27B](https://huggingface.co/Batman787/Athena-27B), by Athena Research.
 
-Athena harness gives the model four tools (read, bash, edit, write), the slash commands developers expect, switchable
+Athena harness gives the model read, bash, edit and write tools plus web search and fetch, a task list, memory,
+skills and session search; the slash commands developers expect; switchable
 thinking, and a small launcher that wires everything to your Athena endpoint. It is the setup Athena-27B was tuned
 and evaluated with.
 
@@ -52,12 +53,11 @@ vllm serve Batman787/Athena-27B --served-model-name athena \
 Thinking is off by default: Athena-27B was tuned for fast agent turns with thinking off, and in our tests thinking
 roughly doubled task time without solving more coding tasks.
 
-## Optional tools (not enabled by default)
+## Web, task list, memory, skills, session search (on by default)
 
-`harness-ext/athena.ts` adds web search and fetch, a task list, memory, skills and session search. Athena picks the
-right one reliably in our tests. They stay opt-in for now: on the full coding suite they solved 138 of 144 runs,
-against 141 of 144 without them, a gap within run-to-run noise but above our 2-point bar. Turn them on with
-`athena -e harness-ext/athena.ts`.
+`harness-ext/athena.ts` adds web search and fetch, a task list, memory, skills and session search. Athena picked the
+right one in 16 of 16 of our tests. On the full coding suite the harness solved 138 of 144 runs with them and 141 of
+144 without them (within run-to-run noise). `ATHENA_TOOLS=0` turns them off.
 
 - Web fetch reads public addresses only. Every connection and redirect is checked; local, private and special
   IPv4/IPv6 ranges are refused. Web search and fetch contact the search service and the sites you ask about.
@@ -77,12 +77,13 @@ against 141 of 144 without them, a gap within run-to-run noise but above our 2-p
 | `ATHENA_CONTEXT` | `131072` | Context window in tokens (model maximum 262144) |
 | `ATHENA_SKILLS` | `0` | `1` loads skills from `~/.agents/skills` |
 | `ATHENA_ALLOW_ANYWHERE` | `0` | `1` allows running in `/`, your home folder or the harness folder |
+| `ATHENA_TOOLS` | `1` | `0` turns off web search/fetch, task list, memory, skills and session search |
 | `ATHENA_DATE` | `1` | `0` leaves today's date out of the prompt |
 | `ATHENA_AUTO_MEMORY` | `0` | `1` lets the optional memory and skill tools save without asking |
 
 Safety defaults: your API keys and the launcher's settings are removed from the environment of the model's shell;
-the harness itself never contacts any third party (no update checks, bug reports are saved locally as a zip);
-self-update is disabled.
+the harness itself never contacts any third party (no update checks, bug reports are saved locally as a zip), except
+the search service and the sites the web tools are asked to read; self-update is disabled.
 
 The model's shell runs as you, so it can read any file you can, including `.env`. Keep other secrets out of that file,
 and run Athena in a container or VM when you work on code you do not trust.
@@ -90,7 +91,8 @@ and run Athena in a container or VM when you work on code you do not trust.
 ## Tests
 
 After the first build: `node tests/test_private_addr.mjs` (address filter), `node tests/test_memory_skills.mjs`
-(approval for memory and skills) and `node tests/test_web_tools.mjs` (web fetch end to end; needs network).
+(approval for memory and skills), `node tests/test_fetch_limits.mjs` (size cap and deadline) and
+`node tests/test_web_tools.mjs` (web fetch end to end; needs network).
 
 ## Updating the core
 
