@@ -1,0 +1,4 @@
+.env
+agent/
+athena-harness/
+harness/node_modules/

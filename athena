@@ -1,0 +1,63 @@
+#!/bin/bash
+# Athena coding agent (pi harness) against the Athena endpoint on Modal.
+#   athena                         interactive, in the current project folder
+#   athena -p "fix the tests"      one-shot
+# Env: ATHENA_MODEL (athena | athena-base), ATHENA_THINKING (off|low|medium|high = ~4k/8k/16k tokens; default off),
+#      ATHENA_CONTEXT (tokens, default 131072, max 262144), ATHENA_SKILLS=1 (load your ~/.agents skills),
+#      ATHENA_URL (endpoint), ATHENA_ALLOW_ANYWHERE=1 (allow running in / or $HOME).
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+if [[ "${ATHENA_ALLOW_ANYWHERE:-0}" != 1 && ( "$PWD" == "/" || "$PWD" == "$HOME" ) ]]; then
+  echo "athena: refusing to run in $PWD (the agent can edit everything below it). cd into a project folder," >&2
+  echo "        or set ATHENA_ALLOW_ANYWHERE=1 if you really mean it." >&2
+  exit 2
+fi
+# Read only what the harness needs from .env (never export the whole file: it also holds other keys, e.g. the judge's,
+# and everything exported here is visible to the model's shell).
+envval() { { grep -E "^$1=" "$HERE/.env" || true; } | tail -1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'; }
+ATHENA_API_KEY="$(envval VLLM_API_KEY)"; export ATHENA_API_KEY
+[[ -n "${ATHENA_URL:-}" ]] || ATHENA_URL="$(envval ATHENA_URL)"
+unset VLLM_API_KEY
+# Athena harness (fork of pi, tools/build_harness.py). PI_* settings configure the process only; the harness
+# strips every PI_* variable from the shell the model uses.
+# PI_OFFLINE: the harness never contacts the upstream project (no update checks, no bug-report uploads; /bug saves a zip).
+export ATHENA_CODING_AGENT_DIR="$HERE/agent" PI_TELEMETRY=0 PI_SKIP_VERSION_CHECK=1 PI_OFFLINE=1
+if [[ "${1:-}" == update ]] && [[ " $* " =~ \ (self|pi|--self|--all)\  ]]; then
+  echo "athena: the harness is updated from source: python3 tools/build_harness.py (see README)." >&2; exit 2
+fi
+mkdir -p "$ATHENA_CODING_AGENT_DIR"
+URL="${ATHENA_URL:-https://saksham-zip2--athena-serve.us-east.modal.run}"
+CTX="${ATHENA_CONTEXT:-131072}"  # tested size; server allows up to 262144
+cat > "$ATHENA_CODING_AGENT_DIR/models.json" <<JSON
+{ "providers": { "athena": {
+  "baseUrl": "$URL/v1", "api": "openai-completions", "apiKey": "\$ATHENA_API_KEY",
+  "models": [
+    { "id": "athena", "name": "Athena", "reasoning": true, "contextWindow": $CTX, "maxTokens": 32768,
+      "thinkingLevelMap": { "minimal": null },
+      "compat": { "thinkingFormat": "qwen-chat-template", "thinkingTokenBudgetField": "thinking_token_budget" }, "samplingParams": { "temperature": 0.8 } },
+    { "id": "athena-base", "name": "Athena Base", "reasoning": true, "contextWindow": $CTX, "maxTokens": 32768,
+      "thinkingLevelMap": { "minimal": null },
+      "compat": { "thinkingFormat": "qwen-chat-template", "thinkingTokenBudgetField": "thinking_token_budget" }, "samplingParams": { "temperature": 0.8 } }
+  ] } } }
+JSON
+# Defaults only on first run; edit agent/settings.json afterwards (reserveTokens = when auto-compaction starts).
+[[ -f "$ATHENA_CODING_AGENT_DIR/settings.json" && $(wc -c < "$ATHENA_CODING_AGENT_DIR/settings.json") -gt 60 ]] || cat > "$ATHENA_CODING_AGENT_DIR/settings.json" <<'JSON'
+{
+  "defaultProvider": "athena",
+  "defaultModel": "athena",
+  "compaction": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 }
+}
+JSON
+# Thinking budgets (owner 2026-11-18): low 4k, medium 8k, high 16k tokens. Added if missing; your other settings stay.
+python3 -I - "$ATHENA_CODING_AGENT_DIR/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+b = s.setdefault("thinkingBudgets", {})
+changed = [b.setdefault(k, v) is v for k, v in {"low": 4096, "medium": 8192, "high": 16384}.items()]
+if any(changed): json.dump(s, open(p, "w"), indent=2)
+PY
+ARGS=(--provider athena --model "${ATHENA_MODEL:-athena}" --thinking "${ATHENA_THINKING:-off}" --prompt-template "$HERE/prompts"
+      -e "$HERE/harness-ext/commands.ts")  # Claude Code-style commands; no tools/prompt change (byte-identical requests)
+[[ "${ATHENA_SKILLS:-0}" == 1 ]] || ARGS+=(--no-skills)
+[[ -f "$HERE/athena-harness/dist/bundle/cli.js" ]] || python3 -I "$HERE/tools/build_harness.py" >/dev/null
+exec node "$HERE/athena-harness/dist/bundle/cli.js" "${ARGS[@]}" "$@"
