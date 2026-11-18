@@ -187,11 +187,17 @@ function validateSkill(content: string) {
 // Memory and skills persist into every later session's prompt, so a page or file the model read could plant
 // instructions there. Every write needs the user's yes; with no one to ask (print mode) it is refused unless the
 // user started the harness with ATHENA_AUTO_MEMORY=1.
+// The user must see exactly what will be saved: text longer than the dialog shows is refused (never cut), and so is
+// text with control, ANSI or bidirectional-override characters that could hide or reorder what is displayed.
+const SHOW_LIMIT = 3000;
+const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/;
 async function approve(ctx: any, title: string, body: string): Promise<string | null> {
+  if (HIDDEN.test(body)) return "Rejected: the text contains control or invisible characters. Use plain text.";
+  if (body.length > SHOW_LIMIT) return `Rejected: ${body.length} chars; keep it under ${SHOW_LIMIT} so the user can review all of it.`;
   if (process.env.ATHENA_AUTO_MEMORY === "1") return null;
   if (!ctx?.hasUI) return "Not saved: memory and skill changes need the user's approval and no one is here to approve. " +
     "Tell the user what you wanted to save (they can start Athena with ATHENA_AUTO_MEMORY=1 to allow it).";
-  return (await ctx.ui.confirm(title, clip(body, 3000))) ? null : "The user declined this change. Nothing was saved.";
+  return (await ctx.ui.confirm(title, body)) ? null : "The user declined this change. Nothing was saved.";
 }
 
 export default function (pi: ExtensionAPI) {
@@ -328,8 +334,8 @@ export default function (pi: ExtensionAPI) {
       const limit = params.target === "user" ? USER_LIMIT : MEMORY_LIMIT;
       if (out.length > limit)
         return text(`Rejected: ${out.length}/${limit} chars. Remove or shorten entries in the same call. Current:\n${readMem(params.target)}`);
-      const no = await approve(ctx, `Athena wants to update its ${params.target === "user" ? "notes about you" : "memory"}`,
-        `It will be shown to Athena in every future session:\n\n${out || "(empty)"}`);
+      const no = await approve(ctx, `Athena wants to update its ${params.target === "user" ? "notes about you" : "memory"} (shown to it in every future session)`,
+        out || "(empty)");
       if (no) return text(no);
       fs.writeFileSync(memFile(params.target), out + (out ? "\n" : ""));
       return text(`Saved (${out.length}/${limit} chars).`);
@@ -370,7 +376,7 @@ export default function (pi: ExtensionAPI) {
       }
       if (!fs.existsSync(p)) return text("No such skill.");
       if (params.action === "delete") {
-        const no = await approve(ctx, `Athena wants to delete the skill "${params.name}"`, fs.readFileSync(p, "utf8"));
+        const no = await approve(ctx, `Athena wants to delete the skill "${params.name}"`, `This removes ${p}.`);
         if (no) return text(no);
         fs.rmSync(path.dirname(p), { recursive: true }); return text("Deleted.");
       }
@@ -379,7 +385,7 @@ export default function (pi: ExtensionAPI) {
       const next = cur.replace(params.old_string, params.new_string ?? "");
       const err = validateSkill(next);
       if (err) return text("Rejected: " + err);
-      const no = await approve(ctx, `Athena wants to change the skill "${params.name}"`, `New version:\n\n${next}`);
+      const no = await approve(ctx, `Athena wants to change the skill "${params.name}" to:`, next);
       if (no) return text(no);
       fs.writeFileSync(p, next);
       stepsSinceSkill = 0;
