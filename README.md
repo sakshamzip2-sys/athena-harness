@@ -55,14 +55,16 @@ roughly doubled task time without solving more coding tasks.
 ## Optional tools (not enabled by default)
 
 `harness-ext/athena.ts` adds web search and fetch, a task list, memory, skills and session search. Athena picks the
-right one reliably in our tests. They stay opt-in for now: across 192 coding runs per setting they solved 181,
-against 184 without them, a gap within run-to-run noise that we are still measuring. Turn them on with
+right one reliably in our tests. They stay opt-in for now: on the full coding suite they solved 138 of 144 runs,
+against 141 of 144 without them, a gap within run-to-run noise but above our 2-point bar. Turn them on with
 `athena -e harness-ext/athena.ts`.
 
 - Web fetch reads public addresses only. Every connection and redirect is checked; local, private and special
   IPv4/IPv6 ranges are refused. Web search and fetch contact the search service and the sites you ask about.
-- Memory and skills are shown to the model in every later session, so each change asks for your approval first. In
-  one-shot mode (`-p`) nobody can approve, so changes are refused unless you start with `ATHENA_AUTO_MEMORY=1`.
+- Memory and skills are shown to the model in every later session, so the memory and skill tools show you the
+  change and ask before saving. In one-shot mode (`-p`) nobody can approve, so they refuse unless you start with
+  `ATHENA_AUTO_MEMORY=1`. This guards the tools, not the files: the model's shell can still write files you can
+  write, including `agent/memory` and `agent/skills`.
 - Skills the agent writes load in later sessions (or after `/reload`).
 
 ## Settings

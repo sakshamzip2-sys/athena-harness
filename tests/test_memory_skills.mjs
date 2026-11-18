@@ -62,8 +62,43 @@ for (const [label, ch] of [["tag characters", "\u{E0049}\u{E0067}\u{E006E}"], ["
 }
 r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: "Prefers Hindi: नमस्ते, café, tabs\tok" }] }, undefined, undefined, watch);
 check("ordinary non-ASCII text allowed", read().includes("नमस्ते"), r.content[0].text);
+// Indic scripts use ZWJ/ZWNJ between letters (Malayalam chillu, Hindi half forms, Urdu/Persian): allowed there only.
+for (const [label, txt] of [["Malayalam ZWJ", "അവന്\u200d"], ["Hindi ZWNJ", "क्\u200dष and क्\u200cष"], ["Urdu ZWNJ", "می\u200cخواهم"]]) {
+  r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: `lang ${label}: ${txt}` }] }, undefined, undefined, watch);
+  check(`${label} allowed`, read().includes(txt), r.content[0].text);
+}
+for (const [label, txt] of [["lone joiner", "x \u200d y"], ["joiner after Latin", "a\u200db\u200cc"], ["joiner after newline", "क\n\u200dx"]]) {
+  r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: `bad-${label}: ${txt}` }] }, undefined, undefined, watch);
+  check(`${label} refused`, !read().includes(`bad-${label}`), r.content[0].text);
+}
 r = await tools.skill_manage.execute("t", { action: "patch", name: "unit-test", old_string: "Always run the tests.", new_string: "Run tests first." }, undefined, undefined, watch);
 check("patch dialog shows the full new version", shown.includes("Run tests first.") && fs.readFileSync(skillFile, "utf8").includes("Run tests first."), shown);
+
+// The dialog shows the change itself and must fit on the user's screen (the terminal dialog scrolls, it never clips).
+shown = "";
+r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: "diff-check entry" }] }, undefined, undefined, watch);
+check("memory dialog shows only the change", /\+ diff-check entry/.test(shown) && !shown.includes("approved fact"), shown);
+r = await tools.skill_manage.execute("t", { action: "patch", name: "unit-test", old_string: "Run tests first.", new_string: "Run all tests first." }, undefined, undefined, watch);
+check("patch dialog shows old and new text", /- Run tests first\./.test(shown) && /\+ Run all tests first\./.test(shown), shown);
+const rows = process.stdout.rows, cols = process.stdout.columns;
+Object.defineProperty(process.stdout, "rows", { value: 24, configurable: true });
+Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+const tall = skillDoc.replace("Always run the tests.", Array.from({ length: 30 }, (_, i) => `Rule ${i}: keep it short.`).join("\n"));
+r = await tools.skill_manage.execute("t", { action: "create", name: "too-tall", content: tall }, undefined, undefined, watch);
+check("text taller than the screen refused", !fs.existsSync(path.join(dir, "skills", "too-tall")) && /screen/.test(r.content[0].text), r.content[0].text);
+Object.defineProperty(process.stdout, "rows", { value: rows, configurable: true });
+Object.defineProperty(process.stdout, "columns", { value: cols, configurable: true });
+
+// Patches apply literally: "$" patterns in new_string are text, and an ambiguous old_string is refused.
+r = await tools.skill_manage.execute("t", { action: "patch", name: "unit-test", old_string: "Run all tests first.", new_string: "Cost: $` and $& and $'." }, undefined, undefined, watch);
+check("patch applied literally ($ patterns kept as text)", fs.readFileSync(skillFile, "utf8").includes("Cost: $` and $& and $'.") && shown.includes("+ Cost: $` and $& and $'."), fs.readFileSync(skillFile, "utf8"));
+fs.writeFileSync(skillFile, skillDoc.replace("Always run the tests.", "Step one.\nStep one."));
+r = await tools.skill_manage.execute("t", { action: "patch", name: "unit-test", old_string: "Step one.", new_string: "Step two." }, undefined, undefined, watch);
+check("ambiguous old_string refused", fs.readFileSync(skillFile, "utf8").includes("Step one.\nStep one.") && /more than once/.test(r.content[0].text), r.content[0].text);
+
+// Saving something already saved must say so clearly (a bare "No change." made the model retry in a loop, live 2026-11-18).
+r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: "diff-check entry" }] }, undefined, undefined, watch);
+check("duplicate add says it is already saved", /already saved/i.test(r.content[0].text) && read().split("diff-check entry").length === 2, r.content[0].text);
 
 // Saved notes are labelled as background facts in the prompt.
 const opts = { sections: {} };

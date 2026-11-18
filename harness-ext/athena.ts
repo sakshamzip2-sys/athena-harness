@@ -198,12 +198,22 @@ const SHOW_LIMIT = 3000;
 // hyphen, tag characters), private use (Co), unassigned (Cn), surrogates (Cs), line/paragraph separators, variation
 // selectors, and letters that render blank (Hangul fillers, braille blank).
 const HIDDEN = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0\u2800]/u;
+// ZWJ/ZWNJ are part of spelling in Indic and Arabic-script languages: allowed right after a letter or mark of those
+// scripts (checked on the original text), refused everywhere else.
+const JOINER_OK = /(?<=[\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Sinhala}\p{Script=Arabic}])[\u200c\u200d]/gu;
+// The terminal dialog prints the whole text and scrolls; the user must be able to see all of it at once.
+function fitsScreen(body: string): boolean {
+  const cols = Math.max(20, (process.stdout.columns || 100) - 4), room = Math.max(5, (process.stdout.rows || 40) - 12);
+  return body.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil([...l].length / cols)), 0) <= room;
+}
+const diffLines = (sign: string, t: string) => t.split("\n").map((l) => `${sign} ${l}`).join("\n");
 async function approve(ctx: any, title: string, body: string): Promise<string | null> {
-  if (HIDDEN.test(body.replace(/[\t\n]/g, ""))) return "Rejected: the text contains control or invisible characters. Use plain text.";
+  if (HIDDEN.test(body.replace(JOINER_OK, "").replace(/[\t\n]/g, ""))) return "Rejected: the text contains control or invisible characters. Use plain text.";
   if (body.length > SHOW_LIMIT) return `Rejected: ${body.length} chars; keep it under ${SHOW_LIMIT} so the user can review all of it.`;
   if (process.env.ATHENA_AUTO_MEMORY === "1") return null;
   if (!ctx?.hasUI) return "Not saved: memory and skill changes need the user's approval and no one is here to approve. " +
     "Tell the user what you wanted to save (they can start Athena with ATHENA_AUTO_MEMORY=1 to allow it).";
+  if (!fitsScreen(body)) return "Rejected: too long to show the user on one screen. Make it shorter or split it.";
   return (await ctx.ui.confirm(title, body)) ? null : "The user declined this change. Nothing was saved.";
 }
 
@@ -329,7 +339,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       let list = entries(readMem(params.target));
       for (const op of params.operations) {
-        if (op.action === "add" && op.content) list.push(op.content.trim());
+        if (op.action === "add" && op.content) { if (!list.includes(op.content.trim())) list.push(op.content.trim()); }
         else {
           const i = list.findIndex((e) => op.old_text && e.includes(op.old_text));
           if (i < 0) return text(`No entry matches: ${op.old_text}. Nothing changed. Current:\n${list.map((e) => "- " + e).join("\n")}`);
@@ -341,8 +351,13 @@ export default function (pi: ExtensionAPI) {
       const limit = params.target === "user" ? USER_LIMIT : MEMORY_LIMIT;
       if (out.length > limit)
         return text(`Rejected: ${out.length}/${limit} chars. Remove or shorten entries in the same call. Current:\n${readMem(params.target)}`);
+      const before = entries(readMem(params.target));
+      const change = [...before.filter((e) => !list.includes(e)).map((e) => diffLines("-", e)),
+                      ...list.filter((e) => !before.includes(e)).map((e) => diffLines("+", e))].join("\n");
+      if (!change) return text("Already saved; nothing to change. Tell the user it is remembered. Current:\n" +
+        list.map((e) => "- " + e).join("\n"));
       const no = await approve(ctx, `Athena wants to update its ${params.target === "user" ? "notes about you" : "memory"} (shown to it in every future session)`,
-        out || "(empty)");
+        change);
       if (no) return text(no);
       fs.writeFileSync(memFile(params.target), out + (out ? "\n" : ""));
       return text(`Saved (${out.length}/${limit} chars).`);
@@ -389,10 +404,15 @@ export default function (pi: ExtensionAPI) {
       }
       const cur = fs.readFileSync(p, "utf8");
       if (!params.old_string || !cur.includes(params.old_string)) return text("old_string not found; read the skill first.");
-      const next = cur.replace(params.old_string, params.new_string ?? "");
+      const at = cur.indexOf(params.old_string);
+      if (cur.indexOf(params.old_string, at + 1) >= 0)
+        return text("old_string appears more than once; include more surrounding text so it matches exactly one place.");
+      // Literal splice: String.replace would expand $&, $` and $' in new_string into text the user never saw.
+      const next = cur.slice(0, at) + (params.new_string ?? "") + cur.slice(at + params.old_string.length);
       const err = validateSkill(next);
       if (err) return text("Rejected: " + err);
-      const no = await approve(ctx, `Athena wants to change the skill "${params.name}" to:`, next);
+      const no = await approve(ctx, `Athena wants to change the skill "${params.name}":`,
+        diffLines("-", params.old_string) + "\n" + diffLines("+", params.new_string ?? ""));
       if (no) return text(no);
       fs.writeFileSync(p, next);
       stepsSinceSkill = 0;
