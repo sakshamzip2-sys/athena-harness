@@ -1,5 +1,5 @@
 #!/bin/bash
-# Athena coding agent (pi harness) against the Athena endpoint on Modal.
+# Athena coding agent (Athena harness) against your Athena endpoint.
 #   athena                         interactive, in the current project folder
 #   athena -p "fix the tests"      one-shot
 # Env: ATHENA_MODEL (athena | athena-base), ATHENA_THINKING (off|low|medium|high = ~4k/8k/16k tokens; default off),
@@ -7,7 +7,8 @@
 #      ATHENA_URL (endpoint), ATHENA_ALLOW_ANYWHERE=1 (allow running in / or $HOME).
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
-if [[ "${ATHENA_ALLOW_ANYWHERE:-0}" != 1 && ( "$PWD" == "/" || "$PWD" == "$HOME" ) ]]; then
+# Also refuse the harness folder itself: its .env holds the endpoint key.
+if [[ "${ATHENA_ALLOW_ANYWHERE:-0}" != 1 && ( "$PWD" == "/" || "$PWD" == "$HOME" || "$PWD/" == "$HERE/"* ) ]]; then
   echo "athena: refusing to run in $PWD (the agent can edit everything below it). cd into a project folder," >&2
   echo "        or set ATHENA_ALLOW_ANYWHERE=1 if you really mean it." >&2
   exit 2
@@ -26,7 +27,11 @@ if [[ "${1:-}" == update ]] && [[ " $* " =~ \ (self|pi|--self|--all)\  ]]; then
   echo "athena: the harness is updated from source: python3 tools/build_harness.py (see README)." >&2; exit 2
 fi
 mkdir -p "$ATHENA_CODING_AGENT_DIR"
-URL="${ATHENA_URL:-https://saksham-zip2--athena-serve.us-east.modal.run}"
+URL="${ATHENA_URL:-}"
+if [[ -z "$URL" ]]; then
+  echo "athena: set ATHENA_URL in $HERE/.env (your Athena endpoint, e.g. https://YOUR-WORKSPACE--athena-serve.us-east.modal.run)." >&2
+  exit 2
+fi
 CTX="${ATHENA_CONTEXT:-131072}"  # tested size; server allows up to 262144
 cat > "$ATHENA_CODING_AGENT_DIR/models.json" <<JSON
 { "providers": { "athena": {

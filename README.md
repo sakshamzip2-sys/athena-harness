@@ -19,7 +19,7 @@ mkdir -p ~/athena-playground && cd ~/athena-playground && athena
 
 The first run builds the harness (`tools/build_harness.py`: installs the pinned core from `harness/package-lock.json`
 and applies the Athena patches). Run it inside a project folder: the agent can edit everything below where it starts,
-so the launcher refuses `/` and your home folder.
+so the launcher refuses `/`, your home folder and the harness folder itself.
 
 ## Serving Athena-27B
 
@@ -54,9 +54,15 @@ roughly doubled task time without solving more coding tasks.
 
 ## Optional tools (not enabled by default)
 
-`harness-ext/athena.ts` adds web search and fetch (public addresses only), a task list, memory, skills and session
-search. Athena picks the right one reliably in our tests, but enabling them cost a few points on our coding suite, so
-they are opt-in until that is resolved: `athena -e harness-ext/athena.ts`.
+`harness-ext/athena.ts` adds web search and fetch, a task list, memory, skills and session search. Athena picks the
+right one reliably in our tests, but enabling them cost a few points on our coding suite, so they are opt-in until
+that is resolved: `athena -e harness-ext/athena.ts`.
+
+- Web fetch reads public addresses only. Every connection and redirect is checked; local, private and special
+  IPv4/IPv6 ranges are refused. Web search and fetch contact the search service and the sites you ask about.
+- Memory and skills are shown to the model in every later session, so each change asks for your approval first. In
+  one-shot mode (`-p`) nobody can approve, so changes are refused unless you start with `ATHENA_AUTO_MEMORY=1`.
+- Skills the agent writes load in later sessions (or after `/reload`).
 
 ## Settings
 
@@ -67,10 +73,20 @@ they are opt-in until that is resolved: `athena -e harness-ext/athena.ts`.
 | `ATHENA_THINKING` | `off` | Starting thinking level |
 | `ATHENA_CONTEXT` | `131072` | Context window in tokens (model maximum 262144) |
 | `ATHENA_SKILLS` | `0` | `1` loads skills from `~/.agents/skills` |
-| `ATHENA_ALLOW_ANYWHERE` | `0` | `1` allows running in `/` or your home folder |
+| `ATHENA_ALLOW_ANYWHERE` | `0` | `1` allows running in `/`, your home folder or the harness folder |
+| `ATHENA_AUTO_MEMORY` | `0` | `1` lets the optional memory and skill tools save without asking |
 
-Safety defaults: the model's shell never sees your API keys or the launcher's settings; the harness never contacts
-any third party (no update checks, bug reports are saved locally as a zip); self-update is disabled.
+Safety defaults: your API keys and the launcher's settings are removed from the environment of the model's shell;
+the harness itself never contacts any third party (no update checks, bug reports are saved locally as a zip);
+self-update is disabled.
+
+The model's shell runs as you, so it can read any file you can, including `.env`. Keep other secrets out of that file,
+and run Athena in a container or VM when you work on code you do not trust.
+
+## Tests
+
+After the first build: `node tests/test_private_addr.mjs` (address filter), `node tests/test_memory_skills.mjs`
+(approval for memory and skills) and `node tests/test_web_tools.mjs` (web fetch end to end; needs network).
 
 ## Updating the core
 
