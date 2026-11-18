@@ -74,6 +74,7 @@ that is resolved: `athena -e harness-ext/athena.ts`.
 | `ATHENA_CONTEXT` | `131072` | Context window in tokens (model maximum 262144) |
 | `ATHENA_SKILLS` | `0` | `1` loads skills from `~/.agents/skills` |
 | `ATHENA_ALLOW_ANYWHERE` | `0` | `1` allows running in `/`, your home folder or the harness folder |
+| `ATHENA_DATE` | `1` | `0` leaves today's date out of the prompt |
 | `ATHENA_AUTO_MEMORY` | `0` | `1` lets the optional memory and skill tools save without asking |
 
 Safety defaults: your API keys and the launcher's settings are removed from the environment of the model's shell;

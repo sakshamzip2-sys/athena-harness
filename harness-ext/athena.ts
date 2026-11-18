@@ -46,7 +46,7 @@ function run(cmd: string, args: string[], timeoutMs: number, signal?: AbortSigna
 // ---------- web ----------
 async function webSearch(query: string, max: number, signal?: AbortSignal) {
   try { // Agent Reach (installed on this machine): JSON {items:[{title,url,snippet}]}
-    const out = await run("agent-reach", ["web", "search", query, "--limit", String(max)], 60000, signal);
+    const out = await run("agent-reach", ["web", "search", "--limit", String(max), "--", query], 60000, signal);
     const items = (JSON.parse(out).items || []).slice(0, max);
     if (items.length) return items.map((i: any) => ({ title: i.title || "", url: i.url || "",
       snippet: (i.published_at ? `[${String(i.published_at).slice(0, 10)}] ` : "") + (i.snippet || i.text?.replace(/\s+/g, " ").slice(0, 400) || "") }));
@@ -146,12 +146,16 @@ async function webFetch(url: string, maxChars: number, signal?: AbortSignal) {
   const first = assertUrl(url);
   // Hostnames that resolve to private/local addresses are refused before any fetcher sees them.
   await new Promise<void>((ok, bad) => checkedLookup(first.hostname.replace(/^\[|\]$/g, ""), { all: true }, (e) => (e ? bad(e) : ok())));
-  try { // Agent Reach reader, used only when a remote reader (Jina, Exa) answered: those fetch from their own
-    // network, never this machine's. Any other backend falls through to the checked local fetch below.
-    const r = JSON.parse(await run("agent-reach", ["web", "read", url], 90000, signal));
-    const t = (r.items || [])[0]?.text;
-    if (REMOTE_READERS.has(String(r.backend)) && t && t.length > 200) return clip(t, maxChars);
-  } catch { /* fall through */ }
+  // Agent Reach reader, pinned before the call to a remote reader (Jina, then Exa): they fetch from their own
+  // network, never this machine's. "--" keeps the URL from being read as an option. If neither answers, the checked
+  // local fetch below is used.
+  for (const backend of REMOTE_READERS) {
+    try {
+      const r = JSON.parse(await run("agent-reach", ["web", "read", "--backend", backend, "--", url], 90000, signal));
+      const t = (r.items || [])[0]?.text;
+      if (r.backend === backend && t && t.length > 200) return clip(t, maxChars);
+    } catch { /* next */ }
+  }
   let cur = assertUrl(url), res = await getOnce(cur, signal);
   for (let hop = 0; res.status >= 300 && res.status < 400 && res.location; hop++) {
     if (hop >= 5) throw new Error("too many redirects");

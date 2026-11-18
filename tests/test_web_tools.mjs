@@ -34,6 +34,17 @@ process.env.PATH = fake + ":" + savedPath;
 t = await fetchTool("https://example.com");
 check("non-remote backend ignored", !/INJECTED/.test(t) && /Example Domain|documentation examples/.test(t), t);
 
+// The reader is pinned to a remote backend before the call, and user text can never be read as an option.
+const rec = fs.mkdtempSync(path.join(os.tmpdir(), "rec-ar-")), argsFile = path.join(rec, "args");
+fs.writeFileSync(path.join(rec, "agent-reach"), `#!/bin/sh\nprintf '%s\\n' "$@" >> ${argsFile}\necho '{"ok":false,"items":[]}'\n`, { mode: 0o755 });
+process.env.PATH = rec + ":" + savedPath;
+await fetchTool("https://example.com");
+await tools.web_search.execute("t", { query: "--help me", max_results: 1 });
+const calls = fs.readFileSync(argsFile, "utf8");
+check("reader pinned before the call (--backend jina|exa)", /read\n--backend\n(jina|exa)\n--\nhttps:\/\/example.com/.test(calls) && !/read\nhttps/.test(calls), calls);
+check("search query after --", /search\n--limit\n1\n--\n--help me/.test(calls), calls);
+process.env.PATH = savedPath;
+
 // Public users: no agent-reach at all.
 process.env.PATH = "/usr/bin:/bin";
 t = await fetchTool("https://example.com");
