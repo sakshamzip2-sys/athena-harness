@@ -55,8 +55,9 @@ roughly doubled task time without solving more coding tasks.
 ## Optional tools (not enabled by default)
 
 `harness-ext/athena.ts` adds web search and fetch, a task list, memory, skills and session search. Athena picks the
-right one reliably in our tests, but enabling them cost a few points on our coding suite, so they are opt-in until
-that is resolved: `athena -e harness-ext/athena.ts`.
+right one reliably in our tests. They stay opt-in for now: across 192 coding runs per setting they solved 181,
+against 184 without them, a gap within run-to-run noise that we are still measuring. Turn them on with
+`athena -e harness-ext/athena.ts`.
 
 - Web fetch reads public addresses only. Every connection and redirect is checked; local, private and special
   IPv4/IPv6 ranges are refused. Web search and fetch contact the search service and the sites you ask about.
