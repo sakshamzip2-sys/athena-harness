@@ -190,9 +190,12 @@ function validateSkill(content: string) {
 // The user must see exactly what will be saved: text longer than the dialog shows is refused (never cut), and so is
 // text with control, ANSI or bidirectional-override characters that could hide or reorder what is displayed.
 const SHOW_LIMIT = 3000;
-const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/;
+// Whole Unicode categories, not a list: control (Cc, except tab and newline), format (Cf: zero-width, bidi, soft
+// hyphen, tag characters), private use (Co), unassigned (Cn), surrogates (Cs), line/paragraph separators, variation
+// selectors, and letters that render blank (Hangul fillers, braille blank).
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0\u2800]/u;
 async function approve(ctx: any, title: string, body: string): Promise<string | null> {
-  if (HIDDEN.test(body)) return "Rejected: the text contains control or invisible characters. Use plain text.";
+  if (HIDDEN.test(body.replace(/[\t\n]/g, ""))) return "Rejected: the text contains control or invisible characters. Use plain text.";
   if (body.length > SHOW_LIMIT) return `Rejected: ${body.length} chars; keep it under ${SHOW_LIMIT} so the user can review all of it.`;
   if (process.env.ATHENA_AUTO_MEMORY === "1") return null;
   if (!ctx?.hasUI) return "Not saved: memory and skill changes need the user's approval and no one is here to approve. " +

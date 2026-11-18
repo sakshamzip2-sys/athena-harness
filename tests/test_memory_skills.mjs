@@ -55,6 +55,13 @@ r = await tools.skill_manage.execute("t", { action: "create", name: "esc-one", c
 check("control characters refused", !fs.existsSync(path.join(dir, "skills", "esc-one")), r.content[0].text);
 r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: "tabs \u202eesrever" }] }, undefined, undefined, watch);
 check("bidi override refused in memory", !read().includes("esrever"), r.content[0].text);
+for (const [label, ch] of [["tag characters", "\u{E0049}\u{E0067}\u{E006E}"], ["soft hyphen", "\u00ad"],
+                           ["variation selector", "\uFE0F"], ["private use", "\uE000"], ["line separator", "\u2028"]]) {
+  r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: `hidden-${label}` + ch + "x" }] }, undefined, undefined, watch);
+  check(`${label} refused`, !read().includes(`hidden-${label}`), r.content[0].text);
+}
+r = await tools.memory.execute("t", { target: "memory", operations: [{ action: "add", content: "Prefers Hindi: नमस्ते, café, tabs\tok" }] }, undefined, undefined, watch);
+check("ordinary non-ASCII text allowed", read().includes("नमस्ते"), r.content[0].text);
 r = await tools.skill_manage.execute("t", { action: "patch", name: "unit-test", old_string: "Always run the tests.", new_string: "Run tests first." }, undefined, undefined, watch);
 check("patch dialog shows the full new version", shown.includes("Run tests first.") && fs.readFileSync(skillFile, "utf8").includes("Run tests first."), shown);
 
