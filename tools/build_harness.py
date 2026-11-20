@@ -9,6 +9,7 @@ What changes (owner 2026-11-18: never show "pi" or PI_* to the user or the model
   * System prompt: "running inside Athena harness"; the pi-documentation section is replaced by one neutral line.
   * Bash tool: exposes ATHENA_SESSION_ID / ATHENA_SESSION_FILE / ATHENA_PROVIDER / ATHENA_MODEL /
     ATHENA_REASONING_LEVEL instead of PI_*, and strips every PI_* variable from the environment the model's shell sees.
+  * Startup screen and visible messages: an "A" mark and the name athena instead of the upstream logo and name.
   * LICENSE (upstream MIT, Copyright (c) 2025 Mario Zechner) kept verbatim + NOTICE naming the upstream project.
 Every patch asserts its exact match count, so an upstream change fails the build instead of shipping half-renamed.
 """
@@ -46,6 +47,25 @@ PATCHES = [  # (old, new, expected count)
     ("Update pi, installed packages, or model catalogs.", "Update installed packages or model catalogs.", 1),
     ("This report goes to the Pi developers (Earendil) and is not shared publicly. It includes your pi version,",
      "This report is saved on this computer as a zip; nothing is uploaded. It includes your harness version,", 1),
+    # Startup screen and other text the user sees (owner 2026-11-20): Athena's name and an "A" mark, never "Pi".
+    (r"top=`${fg(CORAL)}${backgroundAnsi(BLUE,mode)}\u2580${RESET}${fg(CORAL)}\u2580\u2588${RESET} `,"
+     r"bottom=`${fg(BLUE)}\u2588\u2580${RESET} ${fg(YELLOW)}\u2588${RESET}`",
+     r"top=`${fg(CORAL)}\u2584\u2580\u2584${RESET} `,bottom=`${fg(BLUE)}\u2588\u2580\u2588${RESET} `", 1),
+    (r"`${foregroundAnsi(CORAL,mode)}P${RESET}${foregroundAnsi(YELLOW,mode)}i${RESET}`",
+     r"`${foregroundAnsi(CORAL,mode)}athena${RESET}`", 1),
+    ("Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+     "Athena harness by Athena Research. Type / for commands, or /help for the list.", 1),
+    ("Pi will resume when the editor exits.", "Athena will resume when the editor exits.", 1),
+    ("Use the terminal cursor instead of Pi's drawn cursor", "Use the terminal cursor instead of the drawn cursor", 1),
+    ("Pi works best with csi-u.", "Athena harness works best with csi-u.", 1),
+    ("Radius is a service crafted for Pi by the builders of Pi, Earendil Works",
+     "Radius is a third-party hosted service; Athena harness does not need it", 1),
+    ('"title","Pi session"', '"title","Athena session"', 1),
+    ("and bugs within Pi. You can observe", "and bugs within the harness. You can observe", 1),
+    ("Managed Pi smoke test", "Managed harness smoke test", 1),
+    ("managed Pi ", "managed harness ", 2),
+    ('title:"Pi Coding Agent Theme",description:"Theme schema for Pi coding agent"',
+     'title:"Athena Harness Theme",description:"Theme schema for Athena harness"', 1),
 ] + [(f"env.PI_{k}", f"env.ATHENA_{k}", 2) for k in
      ("SESSION_ID", "SESSION_FILE", "PROVIDER", "MODEL", "REASONING_LEVEL")]
 
@@ -68,7 +88,8 @@ def main():
         assert got == n, f"patch anchor {old[:50]!r}: expected {n}, found {got}"
         s = s.replace(old, new)
     for leftover in ("running inside pi", "PI_* environment", "env.PI_MODEL", "Pi documentation", "Pi developers",
-                     "self|pi", "Update pi,", "~2k tokens"):
+                     "self|pi", "Update pi,", "~2k tokens", "Pi can explain", "extend Pi", "Pi works best", "for Pi by",
+                     "Pi session", "managed Pi", "Managed Pi", "within Pi.", "instead of Pi's", "Pi will resume"):
         assert leftover not in s, f"leftover after patching: {leftover}"
     open(p, "w").write(s)
     # Runtime dependencies (jiti loads extensions, typebox for their schemas) come from the pinned upstream install.
